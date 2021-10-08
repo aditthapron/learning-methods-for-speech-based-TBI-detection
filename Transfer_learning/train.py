@@ -47,7 +47,7 @@ scheduler_DNN = StepLR(optimizer_DNN, step_size=1, gamma=0.98)
 
 training_set = Dataset_(batch_size,wav_lst_tr,snt_tr,wlen,0.2,tran_lst_tr)
 dataloader = DataLoader(training_set, batch_size=batch_size,
-                        shuffle=False, num_workers=1, drop_last=True)
+                        shuffle=False, num_workers=8, drop_last=True)
 early_stop=0
 best_loss=np.inf
 fine_tuning=False
