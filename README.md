@@ -10,7 +10,8 @@ The parameters in each backbone network were pre-trained on the source task and 
 ## Multi-task learning
 The first 3 layers of Wav2Vec, and first 6 layers of SincNet were considered shared layers between TBI detection and other source tasks, which were jointly trained. For subsequent task-specific layers, FC layers were applied with activation functions specific to the source task as follows. GA has two FC layers with softmax activation function. As in the original paper describing the SincNet model, Libri has two FCs with a softmax activation function. Lastly, the WOZ dataset is connected to the same classifier with the Sigmoid activation function as in the TBI classifier. The gradient update in each task was balanced using GradNorm, which normalizes the gradients and weights the loss in each training batch.
 
-## Meta-learning: We adopted the MAML++ implementation, which improved on the training stability of the original MAML. Similar to MTL, all combinations of the source datasets were used to train MAML and the target task was used in the meta-testing step. In meta-testing, only training data of TBI speech were used to optimize the model's parameters.
+## Meta-learning
+We adopted the MAML++ implementation, which improved on the training stability of the original MAML. Similar to MTL, all combinations of the source datasets were used to train MAML and the target task was used in the meta-testing step. In meta-testing, only training data of TBI speech were used to optimize the model's parameters.
 
 ## Dependency
 * Librosa=0.7.2
