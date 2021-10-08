@@ -204,13 +204,13 @@ for epoch in range(N_epochs):
         
         print("epoch %i, loss_tr=%f err_tr=%f loss_te=%f err_te=%f err_te_snt=%f" % (epoch, loss_tot,err_tot,loss_tot_dev,err_tot_dev,err_tot_dev_snt))
         print("ACC:{} +- {}\tPrec:{} +- {}\tRecall:{} +- {}".format(np.mean(acc),np.std(acc),np.mean(prec),np.std(prec),np.mean(recall),np.std(recall)))
-        with open(output_folder+"/res_"+str(options.f)+"_"+str(options.i)+".res", "a") as res_file:
+        with open(output_folder+"/res_"+str(argv[1])+".res", "a") as res_file:
             res_file.write("epoch %i, loss_tr=%f err_tr=%f loss_te=%f err_te=%f err_te_snt=%f\n" % (epoch, loss_tot,err_tot,loss_tot_dev,err_tot_dev,err_tot_dev_snt))   
             res_file.write("ACC:{} +- {}\tPrec:{} +- {}\tRecall:{} +- {}".format(np.mean(acc),np.std(acc),np.mean(prec),np.std(prec),np.mean(recall),np.std(recall)))
         if loss_tot_dev < best_loss:
             checkpoint={'CNN_model_par': CNN_net.state_dict(),
                         'DNN_model_par': DNN_net.state_dict()}
-            torch.save(checkpoint,output_folder+'/model_raw_'+str(options.f)+'_'+str(options.i)+'.pkl')
+            torch.save(checkpoint,output_folder+'/model_raw_'+str(argv[1])+'.pkl')
             early_stop=0
             best_loss = loss_tot_dev
         else:
