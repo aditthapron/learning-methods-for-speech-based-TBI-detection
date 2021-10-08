@@ -6,7 +6,7 @@ import numpy as np
 from torch.utils.data import DataLoader,Dataset
 
 # Path to pretrained weights
-pt_file= '/home/aditthapron/WASH_work/SincNet/weight/mravanelli-sincnet_models-f3588bdf02b4/SincNet_TIMIT/model_raw.pkl'
+pt_file= '/home/aditthapron/WASH_work/SincNet/weight/model_Librispeech.pkl'
 output_folder='exp/SincNet_coelho_transfer_learning/'
 
 #signal length
