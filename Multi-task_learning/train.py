@@ -20,6 +20,7 @@ device = torch.device("cuda:0" if use_cuda else "cpu")
 
 # loss function
 cost = nn.BCELoss()
+MSEloss = nn.MSELoss()
 m = nn.Sigmoid()
 
 #initialize model
@@ -33,12 +34,14 @@ else:
 
 if use_cuda:
     CNN_net.cuda()
-for param in CNN_net.parameters():
-    param.requires_grad = False
 
 DNN_net = GRU_MLP(CNN_net.out_dim)
 if use_cuda:
     DNN_net.cuda() 
+
+DNN_net_WOZ = GRU_MLP(CNN_net.out_dim)
+if use_cuda:
+    DNN_net_WOZ.cuda() 
 
 optimizer_CNN = optim.RMSprop(CNN_net.parameters(), lr=lr*0.1,alpha=0.95, eps=1e-8) 
 optimizer_DNN = optim.RMSprop(DNN_net.parameters(), lr=lr,alpha=0.95, eps=1e-8) 
@@ -48,27 +51,44 @@ scheduler_DNN = StepLR(optimizer_DNN, step_size=1, gamma=0.98)
 training_set = Dataset_(batch_size,wav_lst_tr,snt_tr,wlen,0.2,tran_lst_tr)
 dataloader = DataLoader(training_set, batch_size=batch_size,
                         shuffle=False, num_workers=8, drop_last=True)
+
+training_set_WOZ = Dataset_WOZ(batch_size,WOZ_train,len(WOZ_train),wlen,0.2)
+dataloader_WOZ = DataLoader(training_set_WOZ, batch_size=batch_size,
+                        shuffle=False, num_workers=8, drop_last=True)
 early_stop=0
 best_loss=np.inf
 fine_tuning=False
 
 #GRU memory
 Subject_h = dict()
-fine_tuning_epoch=-1
+Subject_h_WOZ = dict()
+
+# weights for Gradnorm
+Weightloss1 = torch.tensor(torch.FloatTensor([1]), requires_grad=True)
+Weightloss2 = torch.tensor(torch.FloatTensor([1]), requires_grad=True)
+params = [Weightloss1, Weightloss2]
+opt2 = torch.optim.Adam(params, lr=0.001)
+Gradloss = nn.L1Loss()
+
 for epoch in range(N_epochs):
-    if fine_tuning:
-        CNN_net.train()
-    else:
-        CNN_net.eval()
+    dataloader_iterator = iter(dataloader_WOZ)
+    CNN_net.train()
     DNN_net.train()
 
     loss_sum=0
     err_sum=0
     c=0
     for local_batch, local_labels,subj in dataloader:
+        try:
+            local_batch_WOZ, local_labels_WOZ,subj_WOZ = next(dataloader_iterator)
+        except StopIteration:
+            dataloader_iterator = iter(dataloader_WOZ)
+            local_batch_WOZ, local_labels_WOZ,subj_WOZ = next(dataloader_iterator)
         # Transfer to GPU
         inp, lab = local_batch.float().to(device), local_labels.float().to(device)
-        #resize
+        inp_WOZ, lab_WOZ =  local_batch_WOZ.float().to(device), local_labels_WOZ.float().to(device)
+        
+        ###TBI part
         inp = inp.view(inp.shape[0]*chunk_n,wlen)
         feature = CNN_net(inp)
 
@@ -89,19 +109,70 @@ for epoch in range(N_epochs):
         for S in range(batch_size):
             Subject_h[subj[S]] = h_out[:,S,:]
         
+
+        
         #estimate loss
         pred = torch.round(pout) 
-        loss = cost(pout, lab.float())
+        l1 = cost(pout, lab.float())
         err = torch.mean((pred!=lab).float())
 
-        #model optimization
-        if fine_tuning:
-            optimizer_CNN.zero_grad()
-        optimizer_DNN.zero_grad()      
+        ### Secondary dataset part
+        inp_WOZ = inp_WOZ.view(inp_WOZ.shape[0]*chunk_n,wlen)
+        feature = CNN_net(inp_WOZ)
+        feature = feature.view(inp_WOZ.shape[0]//chunk_n,chunk_n,CNN_net.out_dim,CNN_net.out_filt_len).permute(0,2,1,3)
+        feature = feature.reshape(inp_WOZ.shape[0]//chunk_n,CNN_net.out_dim,chunk_n*CNN_net.out_filt_len).permute(0,2,1)
+        h_in=torch.zeros((1, 4, 8)).to(device)
+        for S in range(batch_size)
+            if subj_WOZ[S] in Subject_h_WOZ:
+                h_in[:,S,:] = Subject_h_WOZ[subj_WOZ]
+            else:
+            #if new subject initilize to be zero
+                h_in[:,S,:] = torch.zeros((1, 1, 8)).to(device)
+        pout,h_out= DNN_net_WOZ(feature,h_in)
+        #save memory
+        for S in range(batch_size):
+            Subject_h_WOZ[subj_WOZ[S]] = h_out[:,S,:]
+
+        #Gradnorm
+        l2 = cost(MSEloss, lab_WOZ.float())
+        loss = torch.div(torch.add(l1,l2), 2)
+        if epoch == 0:
+            l01 = l1.data  
+            l02 = l2.data
+        optimizer_CNN.zero_grad()
+        optimizer_DNN.zero_grad()
+        optimizer_DNN_WOZ.zero_grad()      
         loss.backward(retain_graph=True)
-        if fine_tuning:
-            optimizer_CNN.step()
+
+        G1R = torch.autograd.grad(l1, CNN_net.parameters()[0], retain_graph=True, create_graph=True)
+        G1 = torch.norm(G1R[0], 2)
+        G2R = torch.autograd.grad(l2, CNN_net.parameters()[0], retain_graph=True, create_graph=True)
+        G2 = torch.norm(G2R[0], 2)
+        G_avg = torch.div(torch.add(G1, G2), 2)
+        # Calculating relative losses 
+        lhat1 = torch.div(l1,l01)
+        lhat2 = torch.div(l2,l02)
+        lhat_avg = torch.div(torch.add(lhat1, lhat2), 2)
+        # Calculating relative inverse training rates for tasks 
+        inv_rate1 = torch.div(lhat1,lhat_avg)
+        inv_rate2 = torch.div(lhat2,lhat_avg)
+        # Calculating the constant target for Eq. 2 in the GradNorm paper
+        C1 = G_avg*(inv_rate1)**alph
+        C2 = G_avg*(inv_rate2)**alph
+        C1 = C1.detach()
+        C2 = C2.detach()
+
+        opt2.zero_grad()
+        Lgrad = torch.add(Gradloss(G1, C1),Gradloss(G2, C2))
+        Lgrad.backward()
+
+        opt2.step()
+        optimizer_CNN.step()
         optimizer_DNN.step()
+        optimizer_DNN_WOZ.step()
+        # Renormalizing the losses weights
+        coef = 2/torch.add(Weightloss1, Weightloss2)
+        params = [coef*Weightloss1, coef*Weightloss2]
 
         loss_sum=loss_sum+loss.detach()
         err_sum=err_sum+err.detach()
@@ -112,8 +183,7 @@ for epoch in range(N_epochs):
     err_tot=err_sum/c
     
     #reduce learning rate
-    if fine_tuning:
-        scheduler_CNN.step()
+    scheduler_CNN.step()
     scheduler_DNN.step()
     
     # Validation and checkpoint  
@@ -223,30 +293,6 @@ for epoch in range(N_epochs):
         else:
             early_stop = early_stop + 1
 
-        #begin fine-tuning
-        if ~fine_tuning and early_stop==10:
-            fine_tuning=True
-            early_stop=0
-            fine_tuning_epoch=epoch
-
-            for param in CNN_net.parameters():
-                param.requires_grad = True
-
-            #set early stage of fine tuning
-            optimizer_CNN = optim.RMSprop(CNN_net.parameters(), lr=1e-5,alpha=0.95, eps=1e-8) 
-            optimizer_DNN = optim.RMSprop(DNN_net.parameters(), lr=1e-5,alpha=0.95, eps=1e-8) 
-            scheduler_CNN = StepLR(optimizer_CNN, step_size=1, gamma=6.31) 
-            scheduler_DNN = StepLR(optimizer_DNN, step_size=1, gamma=6.31)
-
-        if epoch == fine_tuning_epoch+10:
-            #return to normal learning rate
-            optimizer_CNN = optim.RMSprop(CNN_net.parameters(), lr=1e-3,alpha=0.95, eps=1e-8) 
-            optimizer_DNN = optim.RMSprop(DNN_net.parameters(), lr=1e-3,alpha=0.95, eps=1e-8) 
-            scheduler_CNN = StepLR(optimizer_CNN, step_size=1, gamma=0.95) 
-            scheduler_DNN = StepLR(optimizer_DNN, step_size=1, gamma=0.95)
-        #Early-stopping execution
-        if fine_tuning and early_stop==20:
-            break
     
     else:
         print("epoch %i, loss_tr=%f err_tr=%f" % (epoch, loss_tot,err_tot))
