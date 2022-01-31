@@ -80,7 +80,7 @@ for epoch in range(N_epochs):
         h_in=torch.zeros((1, 4, 8)).to(device)
         for S in range(batch_size):
             if subj[S] in Subject_h:
-                h_in[:,S,:] = Subject_h[subj]
+                h_in[:,S,:] = Subject_h[subj[S]]
             else:
                 #if new subject initilize to be zero
                 h_in[:,S,:] = torch.zeros((1, 1, 8)).to(device)
@@ -178,7 +178,7 @@ for epoch in range(N_epochs):
                         h_in=torch.zeros((1, Batch_dev, 8)).to(device)
                         for S in range(Batch_dev)
                             if subj[S] in Subject_h_val:
-                                h_in[:,S,:] = Subject_h_val[subj]
+                                h_in[:,S,:] = Subject_h_val[subj[S]]
                             else:
                                 #if new subject initilize to be zero
                                 h_in[:,S,:] = torch.zeros((1, 1, 8)).to(device)
