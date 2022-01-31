@@ -176,7 +176,7 @@ for epoch in range(N_epochs):
                         
                         #get memory
                         h_in=torch.zeros((1, Batch_dev, 8)).to(device)
-                        for S in range(Batch_dev)
+                        for S in range(Batch_dev):
                             if subj[S] in Subject_h_val:
                                 h_in[:,S,:] = Subject_h_val[subj[S]]
                             else:
